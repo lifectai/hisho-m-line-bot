@@ -31,7 +31,6 @@ def check_task_deadlines():
         os.getenv("SUPABASE_KEY")
     )
     
-    # 未着手・進行中のタスクを取得
     result = supabase.table("tasks").select("*").in_(
         "status", ["未着手", "進行中"]
     ).execute()
@@ -42,10 +41,12 @@ def check_task_deadlines():
     
     for task in tasks:
         if task.get("deadline"):
-            deadline = datetime.fromisoformat(
-                task["deadline"].replace("Z", "+00:00"))
+            deadline_str = task["deadline"]
+            if "+" not in deadline_str and "Z" not in deadline_str:
+                deadline = datetime.fromisoformat(deadline_str).replace(tzinfo=timezone.utc)
+            else:
+                deadline = datetime.fromisoformat(deadline_str.replace("Z", "+00:00"))
             diff = deadline - now
-            # 24時間以内の場合
             if 0 < diff.total_seconds() < 86400:
                 warning_tasks.append(task)
     
@@ -54,8 +55,11 @@ def check_task_deadlines():
         if user_id:
             lines = ["⚠️ 締切が近いタスクがあります！"]
             for task in warning_tasks:
-                deadline = datetime.fromisoformat(
-                    task["deadline"].replace("Z", "+00:00"))
+                deadline_str = task["deadline"]
+                if "+" not in deadline_str and "Z" not in deadline_str:
+                    deadline = datetime.fromisoformat(deadline_str).replace(tzinfo=timezone.utc)
+                else:
+                    deadline = datetime.fromisoformat(deadline_str.replace("Z", "+00:00"))
                 lines.append(f"・{task['title']}（締切：{deadline.strftime('%m/%d %H:%M')}）")
             
             line_bot_api.push_message(
