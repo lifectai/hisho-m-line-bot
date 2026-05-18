@@ -12,7 +12,7 @@ from anthropic import Anthropic
 
 # GmailのAPIで使う権限（スコープ）
 SCOPES = [
-    'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/gmail.modify',
     'https://www.googleapis.com/auth/calendar'
 ]
 
@@ -125,3 +125,103 @@ def summarize_email(subject, sender, body):
     )
     
     return f"📧 {subject}\n{response.content[0].text}"
+
+# セッション管理（下書きを一時保存）
+email_sessions = {}
+
+
+def create_reply_draft(user_id, instruction):
+    """返信メールの下書きを作成する関数"""
+    service = get_gmail_service()
+    
+    # 直近の未読メールを1件取得
+    results = service.users().messages().list(
+        userId='me', q='is:unread', maxResults=1).execute()
+    messages = results.get('messages', [])
+    
+    if not messages:
+        return "返信できる未読メールが見つかりません。"
+    
+    msg = service.users().messages().get(
+        userId='me', id=messages[0]['id'], format='full').execute()
+    
+    headers = msg['payload']['headers']
+    subject = next((h['value'] for h in headers if h['name'] == 'Subject'), '件名なし')
+    sender = next((h['value'] for h in headers if h['name'] == 'From'), '')
+    message_id = next((h['value'] for h in headers if h['name'] == 'Message-ID'), '')
+    
+    # Claudeで返信文を作成
+    response = claude.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=500,
+        system="メールの返信文を作成してください。日本語で丁寧に、簡潔に書いてください。",
+        messages=[{
+            "role": "user",
+            "content": f"件名：{subject}\n送信者：{sender}\n指示：{instruction}"
+        }]
+    )
+    
+    draft_text = response.content[0].text
+    
+    # セッションに保存
+    email_sessions[user_id] = {
+        "draft": draft_text,
+        "to": sender,
+        "subject": f"Re: {subject}",
+        "message_id": message_id,
+        "original_id": messages[0]['id']
+    }
+    
+    return f"📝 下書きを作成しました。\n\n宛先：{sender}\n件名：Re: {subject}\n\n{draft_text}\n\n「送信して」で送信、「修正して＋内容」で修正できます。"
+
+
+def send_reply(user_id):
+    """下書きのメールを送信する関数"""
+    if user_id not in email_sessions:
+        return "送信する下書きがありません。先に「〇〇に返信して」と指示してください。"
+    
+    session = email_sessions[user_id]
+    service = get_gmail_service()
+    
+    import email.mime.text
+    import base64
+    
+    msg = email.mime.text.MIMEText(session["draft"])
+    msg['To'] = session["to"]
+    msg['Subject'] = session["subject"]
+    msg['In-Reply-To'] = session["message_id"]
+    
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+    
+    service.users().messages().send(
+        userId='me',
+        body={'raw': raw, 'threadId': session.get('thread_id', '')}
+    ).execute()
+    
+    # セッションを削除
+    del email_sessions[user_id]
+    
+    return f"✅ メールを送信しました。\n宛先：{session['to']}\n件名：{session['subject']}"
+
+
+def revise_draft(user_id, instruction):
+    """下書きを修正する関数"""
+    if user_id not in email_sessions:
+        return "修正する下書きがありません。先に「〇〇に返信して」と指示してください。"
+    
+    session = email_sessions[user_id]
+    
+    response = claude.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=500,
+        system="メールの返信文を修正してください。日本語で丁寧に、簡潔に書いてください。",
+        messages=[{
+            "role": "user",
+            "content": f"現在の下書き：{session['draft']}\n修正指示：{instruction}"
+        }]
+    )
+    
+    new_draft = response.content[0].text
+    email_sessions[user_id]["draft"] = new_draft
+    
+    return f"📝 下書きを修正しました。\n\n{new_draft}\n\n「送信して」で送信、「修正して＋内容」で再修正できます。"

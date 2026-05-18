@@ -5,7 +5,7 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from dotenv import load_dotenv
-from gmail import get_unread_emails
+from gmail import get_unread_emails, create_reply_draft, send_reply, revise_draft
 
 load_dotenv()
 
@@ -33,13 +33,33 @@ async def webhook(request: Request):
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_message = event.message.text
+    user_id = event.source.user_id
     
-    # 「メール確認して」というキーワードを検知
+    # キーワードで処理を振り分け
     if "メール確認" in user_message:
         try:
             reply_text = get_unread_emails()
         except Exception as e:
             reply_text = f"メール取得中にエラーが発生しました：{str(e)}"
+    
+    elif "返信して" in user_message:
+        try:
+            reply_text = create_reply_draft(user_id, user_message)
+        except Exception as e:
+            reply_text = f"下書き作成中にエラーが発生しました：{str(e)}"
+    
+    elif "送信して" in user_message:
+        try:
+            reply_text = send_reply(user_id)
+        except Exception as e:
+            reply_text = f"送信中にエラーが発生しました：{str(e)}"
+    
+    elif "修正して" in user_message:
+        try:
+            reply_text = revise_draft(user_id, user_message)
+        except Exception as e:
+            reply_text = f"修正中にエラーが発生しました：{str(e)}"
+    
     else:
         response = claude.messages.create(
             model="claude-sonnet-4-6",
