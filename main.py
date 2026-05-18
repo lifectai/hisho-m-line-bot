@@ -6,6 +6,7 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from dotenv import load_dotenv
 from gmail import get_unread_emails, create_reply_draft, send_reply, revise_draft
+from calendar_service import get_today_events, get_tomorrow_events, add_event, update_event
 
 load_dotenv()
 
@@ -59,6 +60,29 @@ def handle_message(event):
             reply_text = revise_draft(user_id, user_message)
         except Exception as e:
             reply_text = f"修正中にエラーが発生しました：{str(e)}"
+    elif "今日の予定" in user_message:
+        try:
+            reply_text = get_today_events()
+        except Exception as e:
+            reply_text = f"予定取得中にエラーが発生しました：{str(e)}"
+    
+    elif "明日の予定" in user_message:
+        try:
+            reply_text = get_tomorrow_events()
+        except Exception as e:
+            reply_text = f"予定取得中にエラーが発生しました：{str(e)}"
+    
+    elif "追加して" in user_message and ("時" in user_message or "予定" in user_message):
+        try:
+            reply_text = add_event(user_message)
+        except Exception as e:
+            reply_text = f"予定追加中にエラーが発生しました：{str(e)}"
+    
+    elif "変更して" in user_message and "時" in user_message:
+        try:
+            reply_text = update_event(user_message)
+        except Exception as e:
+            reply_text = f"予定変更中にエラーが発生しました：{str(e)}"
     
     else:
         response = claude.messages.create(
