@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 from gmail import get_unread_emails, create_reply_draft, send_reply, revise_draft
 from calendar_service import get_today_events, get_tomorrow_events, add_event, update_event
 from task_service import add_task, suggest_task, get_progress, complete_task
+from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import datetime, timezone
 
 load_dotenv()
 
@@ -15,6 +17,55 @@ app = FastAPI()
 claude = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
+
+# APSchedulerの設定
+scheduler = BackgroundScheduler()
+
+def check_task_deadlines():
+    """締切24時間以内のタスクをチェックしてLINEに通知する関数"""
+    from supabase import create_client
+    import os
+    
+    supabase = create_client(
+        os.getenv("SUPABASE_URL"),
+        os.getenv("SUPABASE_KEY")
+    )
+    
+    # 未着手・進行中のタスクを取得
+    result = supabase.table("tasks").select("*").in_(
+        "status", ["未着手", "進行中"]
+    ).execute()
+    
+    tasks = result.data
+    now = datetime.now(timezone.utc)
+    warning_tasks = []
+    
+    for task in tasks:
+        if task.get("deadline"):
+            deadline = datetime.fromisoformat(
+                task["deadline"].replace("Z", "+00:00"))
+            diff = deadline - now
+            # 24時間以内の場合
+            if 0 < diff.total_seconds() < 86400:
+                warning_tasks.append(task)
+    
+    if warning_tasks:
+        user_id = os.getenv("LINE_USER_ID")
+        if user_id:
+            lines = ["⚠️ 締切が近いタスクがあります！"]
+            for task in warning_tasks:
+                deadline = datetime.fromisoformat(
+                    task["deadline"].replace("Z", "+00:00"))
+                lines.append(f"・{task['title']}（締切：{deadline.strftime('%m/%d %H:%M')}）")
+            
+            line_bot_api.push_message(
+                user_id,
+                TextSendMessage(text="\n".join(lines))
+            )
+
+# 1時間ごとに締切チェックを実行
+scheduler.add_job(check_task_deadlines, 'interval', hours=1)
+scheduler.start()
 
 @app.get("/")
 def read_root():
