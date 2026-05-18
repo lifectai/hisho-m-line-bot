@@ -7,6 +7,7 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from dotenv import load_dotenv
 from gmail import get_unread_emails, create_reply_draft, send_reply, revise_draft
 from calendar_service import get_today_events, get_tomorrow_events, add_event, update_event
+from task_service import add_task, suggest_task, get_progress, complete_task
 
 load_dotenv()
 
@@ -83,6 +84,30 @@ def handle_message(event):
             reply_text = update_event(user_message)
         except Exception as e:
             reply_text = f"予定変更中にエラーが発生しました：{str(e)}"
+
+    elif "タスクに追加" in user_message or "タスク追加" in user_message:
+        try:
+            reply_text = add_task(user_message)
+        except Exception as e:
+            reply_text = f"タスク追加中にエラーが発生しました：{str(e)}"
+    
+    elif "何やる" in user_message or "タスク提案" in user_message:
+        try:
+            reply_text = suggest_task()
+        except Exception as e:
+            reply_text = f"タスク提案中にエラーが発生しました：{str(e)}"
+    
+    elif "進捗どう" in user_message or "進捗確認" in user_message:
+        try:
+            reply_text = get_progress()
+        except Exception as e:
+            reply_text = f"進捗確認中にエラーが発生しました：{str(e)}"
+    
+    elif "完了にして" in user_message or "タスク完了" in user_message:
+        try:
+            reply_text = complete_task(user_message)
+        except Exception as e:
+            reply_text = f"タスク完了中にエラーが発生しました：{str(e)}"
     
     else:
         response = claude.messages.create(
