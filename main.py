@@ -159,6 +159,13 @@ def handle_message(event):
             reply_text = complete_task(user_message)
         except Exception as e:
             reply_text = f"タスク完了中にエラーが発生しました：{str(e)}"
+
+    elif "締切チェック" in user_message:
+        try:
+            check_task_deadlines()
+            reply_text = "締切チェックを実行しました。"
+        except Exception as e:
+            reply_text = f"締切チェック中にエラーが発生しました：{str(e)}"
     
     else:
         response = claude.messages.create(
