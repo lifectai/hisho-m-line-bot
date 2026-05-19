@@ -67,8 +67,14 @@ def check_task_deadlines():
                 TextSendMessage(text="\n".join(lines))
             )
 
+from briefing_service import send_morning_briefing
+
 # 1時間ごとに締切チェックを実行
 scheduler.add_job(check_task_deadlines, 'interval', hours=1)
+
+# 毎朝7時にブリーフィングを送信（日本時間）
+scheduler.add_job(send_morning_briefing, 'cron', hour=7, minute=0, timezone='Asia/Tokyo')
+
 scheduler.start()
 
 @app.get("/")
